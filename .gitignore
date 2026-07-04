@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# python
+python/venv/
+__pycache__/
+
+# build output
+client/dist/
+
+# temp video files (uploads/outputs are session-only)
+*.mp4
+*.mov
+*.MOV
+temp/
+uploads/
+outputs/
+
+# env + os junk
+.env
+.DS_Store
