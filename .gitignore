@@ -17,6 +17,8 @@ client/dist/
 temp/
 uploads/
 outputs/
+faces/
+embeddings/
 
 # env + os junk
 .env
