@@ -13,8 +13,9 @@ const PYTHON_BIN = path.join(PYTHON_DIR, "venv", "bin", "python");
 app.use(cors());
 app.use(express.json());
 
-// serve the generated face thumbnails so the frontend can display them
+// serve generated thumbnails + processed videos to the frontend
 app.use("/faces", express.static(path.join(PYTHON_DIR, "faces")));
+app.use("/outputs", express.static(path.join(PYTHON_DIR, "outputs")));
 
 // multer: store uploads in python/uploads/ with a safe unique name
 const storage = multer.diskStorage({
@@ -41,8 +42,7 @@ app.post("/api/scan", upload.single("video"), (req, res) => {
 
   const videoPath = req.file.path;
 
-  // spawn the Python worker as a child process
-  const worker = spawn(PYTHON_BIN, ["worker.py", videoPath], {
+  const worker = spawn(PYTHON_BIN, ["worker.py", "scan", videoPath], {
     cwd: PYTHON_DIR, // run from python/ so model + faces/ paths resolve
   });
 
@@ -60,6 +60,50 @@ app.post("/api/scan", upload.single("video"), (req, res) => {
     try {
       const result = JSON.parse(stdout);
       res.json({ videoPath, ...result });
+    } catch (err) {
+      console.error("bad worker output:", stdout);
+      res.status(500).json({ error: "Could not parse worker output" });
+    }
+  });
+});
+
+// POST /api/redact — blur the selected people in an already-scanned video
+app.post("/api/redact", (req, res) => {
+  const { videoPath, selectedIds } = req.body;
+
+  if (!videoPath || !Array.isArray(selectedIds) || selectedIds.length === 0) {
+    return res.status(400).json({ error: "videoPath and selectedIds required" });
+  }
+
+  // safety: only allow files inside python/uploads, only numeric IDs
+  const uploadsDir = path.join(PYTHON_DIR, "uploads");
+  const resolved = path.resolve(videoPath);
+  if (!resolved.startsWith(uploadsDir)) {
+    return res.status(400).json({ error: "Invalid video path" });
+  }
+  const ids = selectedIds.map(Number);
+  if (ids.some((n) => !Number.isInteger(n) || n < 1)) {
+    return res.status(400).json({ error: "Invalid person IDs" });
+  }
+
+  const worker = spawn(PYTHON_BIN, ["worker.py", "blur", resolved, ids.join(",")], {
+    cwd: PYTHON_DIR,
+  });
+
+  let stdout = "";
+  let stderr = "";
+
+  worker.stdout.on("data", (chunk) => (stdout += chunk));
+  worker.stderr.on("data", (chunk) => (stderr += chunk));
+
+  worker.on("close", (code) => {
+    if (code !== 0) {
+      console.error("blur worker failed:", stderr);
+      return res.status(500).json({ error: "Redaction failed" });
+    }
+    try {
+      const result = JSON.parse(stdout); // {"output": "outputs/redacted.mp4"}
+      res.json({ videoUrl: `/${result.output}` });
     } catch (err) {
       console.error("bad worker output:", stdout);
       res.status(500).json({ error: "Could not parse worker output" });

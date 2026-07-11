@@ -232,7 +232,10 @@ def blur_faces(video_path, selected_ids):
     final_path = f"{OUT_DIR}/redacted.mp4"
     subprocess.run(
         ["ffmpeg", "-y", "-i", silent_path, "-i", video_path,
-         "-map", "0:v", "-map", "1:a?", "-c:v", "copy", "-c:a", "aac",
+         "-map", "0:v", "-map", "1:a?",
+         "-c:v", "libx264", "-crf", "20", "-pix_fmt", "yuv420p",
+         "-movflags", "+faststart",
+         "-c:a", "aac",
          final_path],
         check=True, capture_output=True,
     )

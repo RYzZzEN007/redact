@@ -9,12 +9,15 @@ function App() {
   const [videoPath, setVideoPath] = useState(null);
   const [selected, setSelected] = useState([]);
   const [error, setError] = useState(null);
+  const [redacting, setRedacting] = useState(false);
+  const [resultUrl, setResultUrl] = useState(null);
 
   const handleScan = async () => {
     if (!file) return;
     setScanning(true);
     setError(null);
     setPeople(null);
+    setResultUrl(null);
 
     const form = new FormData();
     form.append("video", file);
@@ -30,6 +33,29 @@ function App() {
       setError("Scan failed — is the backend running?");
     } finally {
       setScanning(false);
+    }
+  };
+
+  const handleRedact = async () => {
+    if (selected.length === 0 || !videoPath) return;
+    setRedacting(true);
+    setError(null);
+    setResultUrl(null);
+
+    try {
+      const res = await fetch("/api/redact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoPath, selectedIds: selected }),
+      });
+      if (!res.ok) throw new Error("redact failed");
+      const data = await res.json();
+      // cache-bust: the URL is always /outputs/redacted.mp4, so force a fresh fetch
+      setResultUrl(`${data.videoUrl}?t=${Date.now()}`);
+    } catch (err) {
+      setError("Redaction failed — check the server logs.");
+    } finally {
+      setRedacting(false);
     }
   };
 
@@ -52,10 +78,10 @@ function App() {
         />
         <button
           onClick={handleScan}
-          disabled={!file || scanning}
+          disabled={!file || scanning || redacting}
           style={{
             ...styles.button,
-            opacity: !file || scanning ? 0.4 : 1,
+            opacity: !file || scanning || redacting ? 0.4 : 1,
           }}
         >
           {scanning ? "Scanning…" : "Scan for faces"}
@@ -98,7 +124,7 @@ function App() {
                     transition={{ delay: i * 0.1 }}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    onClick={() => toggle(p.id)}
+                    onClick={() => !redacting && toggle(p.id)}
                     style={{
                       ...styles.card,
                       border: isSelected
@@ -126,16 +152,60 @@ function App() {
             </div>
 
             <button
-              disabled={selected.length === 0}
+              onClick={handleRedact}
+              disabled={selected.length === 0 || redacting}
               style={{
                 ...styles.button,
                 marginTop: 24,
                 background: "#E5202A",
-                opacity: selected.length === 0 ? 0.4 : 1,
+                opacity: selected.length === 0 || redacting ? 0.4 : 1,
               }}
             >
-              Redact {selected.length} selected →
+              {redacting
+                ? "Redacting…"
+                : `Redact ${selected.length} selected →`}
             </button>
+
+            {redacting && (
+              <motion.p
+                initial={{ opacity: 0.3 }}
+                animate={{ opacity: 1 }}
+                transition={{
+                  repeat: Infinity,
+                  repeatType: "reverse",
+                  duration: 0.8,
+                }}
+                style={{ opacity: 0.6 }}
+              >
+                Blurring selected faces frame by frame — this takes a few
+                minutes…
+              </motion.p>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* result */}
+      <AnimatePresence>
+        {resultUrl && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{ ...styles.section, paddingBottom: 60 }}
+          >
+            <h2 style={{ fontWeight: 500 }}>Done — faces redacted</h2>
+            <video
+              src={resultUrl}
+              controls
+              style={styles.player}
+            />
+            <div>
+              <a href={resultUrl} download="redacted.mp4">
+                <button style={{ ...styles.button, marginTop: 16 }}>
+                  ⬇ Download redacted video
+                </button>
+              </a>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -187,6 +257,13 @@ const styles = {
     objectFit: "cover",
     borderRadius: 8,
     transition: "filter 0.2s",
+  },
+  player: {
+    maxWidth: "90vw",
+    width: 640,
+    borderRadius: 12,
+    marginTop: 16,
+    background: "#000",
   },
 };
 
