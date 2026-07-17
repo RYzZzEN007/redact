@@ -1,44 +1,56 @@
-@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
 
 :root {
-  --bg-0: #0D0F12;
-  --bg-1: #16181C;
-  --surface: #1A1D23;
-  --line: rgba(233, 241, 246, 0.09);
-  --text: #E9F1F6;
-  --text-dim: rgba(233, 241, 246, 0.55);
-  --text-faint: rgba(233, 241, 246, 0.3);
-  --red: #E5202A;
-  --red-glow: rgba(229, 32, 42, 0.35);
-  --red-dim: rgba(229, 32, 42, 0.12);
+  color-scheme: dark;
 
-  --font-display: 'Archivo Black', sans-serif;
-  --font-body: 'Archivo', sans-serif;
-  --font-mono: 'IBM Plex Mono', monospace;
+  --ink: #0D0F12;
+  --ink-soft: #16181C;
+  --frost: #E9F1F6;
+  --steel: #7DA8B8;
+  --steel-dim: #4A6470;
+
+  --glow: 0 0 40px -8px rgba(125, 168, 184, 0.35);
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-html, body {
-  background: var(--bg-0);
-  color: var(--text);
-  font-family: var(--font-body);
-  min-height: 100vh;
-}
+html, body, #root { height: 100%; }
 
 body {
   background:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(229, 32, 42, 0.06), transparent),
-    linear-gradient(180deg, var(--bg-0), var(--bg-1) 100%);
+    radial-gradient(120% 90% at 50% -10%, rgba(125, 168, 184, 0.08), transparent 60%),
+    linear-gradient(160deg, var(--ink) 0%, var(--ink-soft) 100%);
   background-attachment: fixed;
+  color: var(--frost);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
 button { font-family: inherit; }
 
+::selection { background: rgba(125, 168, 184, 0.35); }
+
 :focus-visible {
-  outline: 2px solid var(--red);
+  outline: 2px solid var(--steel);
   outline-offset: 3px;
   border-radius: 4px;
+}
+
+/* the sweep that crosses the CLASSIFIED plate while work is running */
+@keyframes sweep {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+.sweep { position: relative; overflow: hidden; }
+.sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(125, 168, 184, 0.25), transparent);
+  animation: sweep 1.6s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
