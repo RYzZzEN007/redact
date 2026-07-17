@@ -10,9 +10,14 @@ DETECTOR_MODEL = "face_detection_yunet_2023mar.onnx"
 RECOGNIZER_MODEL = "face_recognition_sface_2021dec.onnx"
 
 SAMPLE_EVERY = 5            # embed every 5th frame during scan, not all frames
-MATCH_THRESHOLD = 0.25      # below SFace's 0.363 — lenient, to avoid splitting one person
-UNCERTAIN_THRESHOLD = 0.15  # below this we're confident it's someone else
+MATCH_THRESHOLD = 0.25      # assignment: single noisy frame vs mean — lenient on purpose
+MERGE_THRESHOLD = 0.363     # merging: stable mean vs stable mean — SFace's same-person line
+UNCERTAIN_THRESHOLD = 0.15  # below this a face matches nobody we know — protect it
 PERSIST_FRAMES = 10         # keep blurring a spot for N frames after last sighting
+
+DETECT_SCALE = 0.5          # blur pass: detect on half-res frames (~4x faster)
+REVERIFY_EVERY = 5          # re-embed tracked faces every N frames
+PROGRESS_EVERY = 100        # print progress to stderr every N frames
 
 EMB_DIR = "embeddings"
 OUT_DIR = "outputs"
@@ -25,6 +30,32 @@ def load_models(width, height):
     )
     recognizer = cv2.FaceRecognizerSF.create(RECOGNIZER_MODEL, "")
     return detector, recognizer
+
+
+def crop_score(crop):
+    """Thumbnail quality = sharpness x size. Motion-blurred crops score near zero."""
+    if crop.size == 0:
+        return 0.0
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()   # focus measure
+    return float(sharpness * (crop.shape[0] * crop.shape[1]) ** 0.5)
+
+
+def detect_scaled(detector, frame, scale):
+    """Detect on a downscaled frame, return rows mapped back to full-res coords."""
+    small = cv2.resize(frame, None, fx=scale, fy=scale)
+    detector.setInputSize((small.shape[1], small.shape[0]))
+    _, faces = detector.detect(small)
+    if faces is None:
+        return None
+    faces = faces.copy()
+    faces[:, :14] /= scale   # x, y, w, h + 5 landmark pairs → full-res space
+    return faces
+
+
+def progress(done, total):
+    if done % PROGRESS_EVERY == 0:
+        print(f"PROGRESS {done}/{total}", file=sys.stderr, flush=True)
 
 
 def blur_region(frame, x, y, fw, fh):
@@ -45,7 +76,7 @@ def blur_region(frame, x, y, fw, fh):
 
 
 def merge_clusters(people, recognizer):
-    """Heal pose-splits: merge clusters whose mean embeddings match."""
+    """Heal pose-splits: merge clusters whose stable means clear SFace's own bar."""
     changed = True
     while changed:
         changed = False
@@ -54,12 +85,12 @@ def merge_clusters(people, recognizer):
                 mi = (people[i]["emb_sum"] / people[i]["count"]).astype(np.float32)
                 mj = (people[j]["emb_sum"] / people[j]["count"]).astype(np.float32)
                 score = recognizer.match(mi, mj, cv2.FaceRecognizerSF_FR_COSINE)
-                if score > MATCH_THRESHOLD:
+                if score > MERGE_THRESHOLD:
                     people[i]["emb_sum"] += people[j]["emb_sum"]
                     people[i]["count"] += people[j]["count"]
-                    if people[j]["thumb_area"] > people[i]["thumb_area"]:
+                    if people[j]["thumb_score"] > people[i]["thumb_score"]:
                         people[i]["thumb"] = people[j]["thumb"]
-                        people[i]["thumb_area"] = people[j]["thumb_area"]
+                        people[i]["thumb_score"] = people[j]["thumb_score"]
                     people.pop(j)
                     changed = True
                     break
@@ -70,6 +101,7 @@ def merge_clusters(people, recognizer):
 
 def cluster_faces(video_path):
     video = cv2.VideoCapture(video_path)
+    total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
 
     # clean up thumbnails + embeddings from any previous run
     for old in glob.glob("faces/person_*.jpg"):
@@ -84,7 +116,7 @@ def cluster_faces(video_path):
     h, w = frame.shape[:2]
     detector, recognizer = load_models(w, h)
 
-    people = []          # each: {"id", "emb_sum", "count", "thumb", "thumb_area"}
+    people = []          # each: {"id", "emb_sum", "count", "thumb", "thumb_score"}
     frame_num = 0
     sampled_frames = 0   # how many frames we actually embedded (for the phantom filter)
 
@@ -107,6 +139,9 @@ def cluster_faces(video_path):
                     aligned = recognizer.alignCrop(frame, face_row)
                     emb = recognizer.feature(aligned)
 
+                    crop = frame[max(y, 0):y + fh, max(x, 0):x + fw]
+                    score_now = crop_score(crop)
+
                     # compare against the running MEAN of each known person
                     best_score = 0
                     best_person = None
@@ -123,23 +158,22 @@ def cluster_faces(video_path):
                     if best_person is not None and best_score > MATCH_THRESHOLD:
                         best_person["count"] += 1
                         best_person["emb_sum"] += emb   # fingerprint keeps improving
-                        if fw * fh > best_person["thumb_area"]:
-                            # bigger face → better thumbnail
-                            best_person["thumb"] = frame[max(y, 0):y + fh,
-                                                         max(x, 0):x + fw]
-                            best_person["thumb_area"] = fw * fh
+                        if score_now > best_person["thumb_score"]:
+                            # sharper, better-sized face → better thumbnail
+                            best_person["thumb"] = crop
+                            best_person["thumb_score"] = score_now
                     else:
                         # new person: start their embedding sum + save a thumbnail crop
-                        thumb = frame[max(y, 0):y + fh, max(x, 0):x + fw]
                         people.append({
                             "id": len(people) + 1,
                             "emb_sum": emb.copy(),
                             "count": 1,
-                            "thumb": thumb,
-                            "thumb_area": fw * fh,
+                            "thumb": crop,
+                            "thumb_score": score_now,
                         })
 
         frame_num += 1
+        progress(frame_num, total_frames)
 
     video.release()
 
@@ -172,15 +206,20 @@ def cluster_faces(video_path):
 
 
 def blur_faces(video_path, selected_ids):
-    targets = []
-    for pid in selected_ids:
-        emb = np.load(f"{EMB_DIR}/person_{pid}.npy").astype(np.float32)
-        targets.append(emb)
+    # load ALL known people from the scan, remember which are selected
+    known = []   # (person_id, embedding)
+    for f in glob.glob(f"{EMB_DIR}/person_*.npy"):
+        pid = int(os.path.basename(f).split("_")[1].split(".")[0])
+        known.append((pid, np.load(f).astype(np.float32)))
+    if not known:
+        sys.exit("No embeddings found — run a scan first")
+    selected = set(selected_ids)
 
     video = cv2.VideoCapture(video_path)
     fps = video.get(cv2.CAP_PROP_FPS) or 30
     w = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
     detector, recognizer = load_models(w, h)
 
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -188,14 +227,15 @@ def blur_faces(video_path, selected_ids):
     writer = cv2.VideoWriter(silent_path,
                              cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
 
-    trail = []   # recent target sightings: [x, y, fw, fh, ttl]
+    trail = []       # recent target sightings: [x, y, fw, fh, ttl]
+    frame_num = 0
 
     while True:
         ok, frame = video.read()
         if not ok:
             break
 
-        _, faces = detector.detect(frame)
+        faces = detect_scaled(detector, frame, DETECT_SCALE)
         if faces is not None:
             for face_row in faces:
                 x, y, fw, fh = face_row[:4].astype(int)
@@ -203,11 +243,26 @@ def blur_faces(video_path, selected_ids):
                 if fw < 60 or fh < 60:
                     hit = True                     # too small to identify → blur
                 else:
-                    aligned = recognizer.alignCrop(frame, face_row)
-                    emb = recognizer.feature(aligned)
-                    best = max(recognizer.match(emb, t,
-                               cv2.FaceRecognizerSF_FR_COSINE) for t in targets)
-                    hit = best >= UNCERTAIN_THRESHOLD
+                    cx, cy = x + fw // 2, y + fh // 2
+                    in_trail = any(b[0] <= cx <= b[0] + b[2]
+                                   and b[1] <= cy <= b[1] + b[3]
+                                   for b in trail)
+                    if in_trail and frame_num % REVERIFY_EVERY != 0:
+                        hit = True                 # tracked face → skip embedding
+                    else:
+                        # nearest-identity: who does this face resemble MOST?
+                        aligned = recognizer.alignCrop(frame, face_row)
+                        emb = recognizer.feature(aligned)
+                        best_pid, best = None, -1.0
+                        for pid, temb in known:
+                            s = recognizer.match(emb, temb,
+                                                 cv2.FaceRecognizerSF_FR_COSINE)
+                            if s > best:
+                                best, best_pid = s, pid
+                        if best < UNCERTAIN_THRESHOLD:
+                            hit = True                  # unknown face → protect it
+                        else:
+                            hit = best_pid in selected  # known → their selection decides
 
                 if hit:
                     # supersede stale trail boxes this fresh sighting overlaps
@@ -224,6 +279,8 @@ def blur_faces(video_path, selected_ids):
                  for bx, by, bw, bh, ttl in trail if ttl > 1]
 
         writer.write(frame)
+        frame_num += 1
+        progress(frame_num, total_frames)
 
     video.release()
     writer.release()
@@ -247,10 +304,10 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
         sys.exit("Usage: python worker.py scan <video> | blur <video> <ids>")
     mode = sys.argv[1]
-    if mode == "scan":
-        cluster_faces(sys.argv[2])
-    elif mode == "blur":
+    if mode == "blur":
         ids = [int(i) for i in sys.argv[3].split(",")]
         blur_faces(sys.argv[2], ids)
+    elif mode == "scan":
+        cluster_faces(sys.argv[2])
     else:
         sys.exit(f"Unknown mode: {mode}")

@@ -1,4 +1,5 @@
 const express = require("express");
+const fs = require("fs");
 const cors = require("cors");
 const multer = require("multer");
 const path = require("path");
@@ -16,6 +17,23 @@ app.use(express.json());
 // serve generated thumbnails + processed videos to the frontend
 app.use("/faces", express.static(path.join(PYTHON_DIR, "faces")));
 app.use("/outputs", express.static(path.join(PYTHON_DIR, "outputs")));
+
+// session wipe: everything Redact generates lives in these four folders
+const WIPE_DIRS = ["uploads", "faces", "embeddings", "outputs"].map((d) =>
+  path.join(PYTHON_DIR, d)
+);
+
+function wipeSession() {
+  let removed = 0;
+  for (const dir of WIPE_DIRS) {
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir)) {
+      fs.rmSync(path.join(dir, f), { force: true });
+      removed++;
+    }
+  }
+  return removed;
+}
 
 // multer: store uploads in python/uploads/ with a safe unique name
 const storage = multer.diskStorage({
@@ -111,6 +129,13 @@ app.post("/api/redact", (req, res) => {
   });
 });
 
+// POST /api/wipe — delete all session files (uploads, faces, embeddings, outputs)
+app.post("/api/wipe", (req, res) => {
+  const removed = wipeSession();
+  res.json({ ok: true, removed });
+});
+
 app.listen(PORT, () => {
   console.log(`✅ Redact server running on http://localhost:${PORT}`);
+  console.log(`🧹 wiped ${wipeSession()} leftover session files`);
 });
