@@ -1,5 +1,10 @@
 # Redact
 
+![React](https://img.shields.io/badge/React-Vite-7DA8B8?style=flat-square)
+![Node](https://img.shields.io/badge/Node.js-Express-4A6470?style=flat-square)
+![OpenCV](https://img.shields.io/badge/OpenCV-YuNet%20%2B%20SFace-E5202A?style=flat-square)
+![Python](https://img.shields.io/badge/Python-worker-4A6470?style=flat-square)
+
 **Selective face anonymization for video.** Upload a clip, and Redact detects everyone who appears, groups each distinct person into their own identity, and lets you pick exactly who to blur — leaving everyone else untouched. Nothing is stored; every file is wiped when the session ends.
 
 <p align="center">
@@ -23,16 +28,20 @@ In the demo above, three people are detected. Only the center subject is selecte
 
 ## How it works
 
-```
-          ┌─────────────┐     video      ┌──────────────┐    spawn     ┌────────────────┐
-  Browser │   React UI  │ ─────────────▶ │ Node/Express │ ───────────▶ │  Python worker │
-  (Vite)  │  phase FSM  │ ◀───────────── │  job registry│ ◀─────────── │  OpenCV + ffmpeg│
-          └─────────────┘   jobId/poll   └──────────────┘   stdout     └────────────────┘
+```mermaid
+flowchart LR
+    A[React UI<br/>Vite - phase FSM] -->|video| B[Node / Express<br/>job registry]
+    B -->|spawn| C[Python worker<br/>OpenCV + ffmpeg]
+    C -->|stdout| B
+    B -->|jobId / poll| A
+    style A fill:#16181C,stroke:#7DA8B8,color:#E9F1F6
+    style B fill:#16181C,stroke:#7DA8B8,color:#E9F1F6
+    style C fill:#16181C,stroke:#E5202A,color:#E9F1F6
 ```
 
 **The scan pass** samples the video, detects faces with **YuNet**, and turns each into a 128-d embedding with **SFace**. Faces are clustered online into people by cosine similarity against each person's running-mean embedding, a merge pass heals identities that split across pose changes, and a phantom filter drops faces seen too briefly to be real. Each surviving person gets a thumbnail and a saved mean embedding.
 
-**The blur pass** walks every frame, and for each detected face asks *who does this resemble most?* against all catalogued people. If the best match is a selected person — blur. If it matches nobody confidently — blur anyway (protect the unknown). Otherwise, leave it clear. A short temporal-persistence trail keeps the blur steady through detection hiccups, and the audio is restored from the original before the H.264 export.
+**The blur pass** walks every frame, and for each detected face asks *who does this resemble most?* against all catalogued people. If the best match is a selected person, blur. If it matches nobody confidently, blur anyway (protect the unknown). Otherwise, leave it clear. A short temporal-persistence trail keeps the blur steady through detection hiccups, and the audio is restored from the original before the H.264 export.
 
 **The pipeline is asynchronous:** the API returns a job ID immediately and the worker streams progress to the server, which the UI polls — so the long blur pass shows a real progress bar instead of a frozen request.
 
@@ -86,7 +95,7 @@ A few choices that came out of testing on real footage rather than theory:
 - **Merge threshold at SFace's own 0.363.** Assignment during clustering is deliberately lenient (to avoid splitting one person across poses), but merging compares two *stable* mean embeddings — so it uses SFace's official same-person line. Getting this wrong once fused two different people into one identity; the fix was recognizing that a single noisy frame and a stable mean deserve different thresholds.
 - **Nearest-identity, not per-target matching.** The blur pass classifies each face against *everyone* catalogued and acts on the best match — so two similar-looking people are told apart correctly, and an unselected person stays clear even if they slightly resemble a selected one.
 - **Blur when uncertain.** For a privacy tool, the safe failure is over-protection. A face that matches nobody confidently gets blurred rather than risk a leak.
-- **Sharpness-scored thumbnails.** Subject cards use the sharpest crop (variance-of-Laplacian × size), not just the biggest — motion-blurred frames don't win.
+- **Sharpness-scored thumbnails.** Subject cards use the sharpest crop (variance-of-Laplacian x size), not just the biggest — motion-blurred frames don't win.
 - **H.264 output.** The raw OpenCV writer produces a codec browsers won't play; the final pass re-encodes to H.264 with `+faststart` so the result streams in-browser.
 
 ---
