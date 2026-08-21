@@ -1,62 +1,43 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
   color-scheme: dark;
 
   --ink: #0D0F12;
-  --ink-soft: #16181C;
+  --panel: #111318;
+  --line: rgba(233, 241, 246, 0.16);
+  --line-soft: rgba(233, 241, 246, 0.07);
+
   --frost: #E9F1F6;
+  --dim: rgba(233, 241, 246, 0.52);
+  --faint: rgba(233, 241, 246, 0.3);
+
   --steel: #7DA8B8;
-  --steel-dim: #4A6470;
+  --red: #E5202A;
 
-  --glow: 0 0 40px -8px rgba(125, 168, 184, 0.35);
-
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --sans: 'Inter', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-
 html, body, #root { height: 100%; }
 
 body {
-  background:
-    radial-gradient(120% 90% at 50% -10%, rgba(125, 168, 184, 0.08), transparent 60%),
-    linear-gradient(160deg, var(--ink) 0%, var(--ink-soft) 100%);
-  background-attachment: fixed;
+  background: var(--ink);
   color: var(--frost);
-  font-family: var(--font-sans);
+  font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum" 1;   /* tabular figures — Swiss numerals line up */
 }
 
 button { font-family: inherit; }
+::selection { background: var(--steel); color: var(--ink); }
 
-::selection { background: rgba(125, 168, 184, 0.35); }
-
-:focus-visible {
-  outline: 2px solid var(--steel);
-  outline-offset: 3px;
-  border-radius: 4px;
-}
-
-/* the sweep that crosses the CLASSIFIED plate while work is running */
-@keyframes sweep {
-  0%   { transform: translateX(-120%); }
-  100% { transform: translateX(120%); }
-}
-.sweep { position: relative; overflow: hidden; }
-.sweep::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(125, 168, 184, 0.25), transparent);
-  animation: sweep 1.6s ease-in-out infinite;
-}
+:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }
