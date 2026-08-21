@@ -35,9 +35,10 @@
   color: var(--faint);
 }
 
-/* phase index strip */
+/* phase index strip — centered */
 .index {
   display: flex;
+  justify-content: center;
   gap: 0;
   border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
@@ -48,7 +49,7 @@
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--faint);
-  padding: 14px 26px 14px 0;
+  padding: 14px 22px;
   display: flex;
   gap: 9px;
   align-items: baseline;
@@ -60,18 +61,21 @@
 .index-item.done { color: var(--dim); }
 .index-item.done .n { color: var(--dim); }
 
-/* stage */
+/* stage — centered */
 .stage {
   flex: 1;
   padding: 80px 0 120px;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
 /* ============ eyebrow (numbered section head) ============ */
 .eyebrow {
   display: flex;
   align-items: baseline;
+  justify-content: center;
   gap: 16px;
   margin-bottom: 40px;
 }
@@ -88,10 +92,10 @@
   text-transform: uppercase;
   color: var(--dim);
 }
-.eyebrow .rule { flex: 1; height: 1px; background: var(--line); align-self: center; }
+.eyebrow .rule { display: none; }   /* rule reads odd when centered — drop it */
 
 /* ============ hero wordmark ============ */
-.hero { max-width: 780px; }
+.hero { max-width: 780px; display: flex; flex-direction: column; align-items: center; }
 .wordmark {
   display: inline-flex;
   font-family: var(--sans);
@@ -114,9 +118,10 @@
   color: var(--dim);
 }
 
-/* ============ dropzone ============ */
+/* ============ dropzone — centered ============ */
 .drop {
   margin-top: 48px;
+  width: 100%;
   max-width: 620px;
   border: 1px solid var(--line);
   background: var(--panel);
@@ -124,7 +129,9 @@
   cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 24px;
+  text-align: left;
   transition: border-color 0.2s, background 0.2s;
 }
 .drop:hover, .drop.drag { border-color: var(--steel); background: #14171C; }
@@ -140,8 +147,15 @@
 }
 .drop.has-file .drop-glyph { background: var(--steel); }
 
-/* ============ actions ============ */
-.actions { margin-top: 44px; display: flex; gap: 0; border-top: 1px solid var(--line); max-width: 620px; }
+/* ============ actions — centered ============ */
+.actions {
+  margin-top: 44px;
+  display: flex;
+  gap: 0;
+  border-top: 1px solid var(--line);
+  width: 100%;
+  max-width: 620px;
+}
 .btn {
   font-family: var(--sans);
   font-size: 14px;
@@ -154,8 +168,7 @@
   color: var(--frost);
   cursor: pointer;
   flex: 1;
-  text-align: left;
-  padding-left: 22px;
+  text-align: center;
   transition: background 0.15s, color 0.15s;
 }
 .btn:last-child { border-right: 0; }
@@ -171,12 +184,14 @@
   margin-right: 12px;
 }
 
-/* ============ subject grid ============ */
+/* ============ subject grid — centered ============ */
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
   border-top: 1px solid var(--line);
   border-left: 1px solid var(--line);
+  width: 100%;
+  max-width: 800px;
 }
 .card {
   border-right: 1px solid var(--line);
@@ -237,8 +252,8 @@
   color: var(--faint);
 }
 
-/* ============ working / progress ============ */
-.work { max-width: 780px; }
+/* ============ working / progress — centered ============ */
+.work { max-width: 780px; display: flex; flex-direction: column; align-items: center; }
 .work-num {
   font-family: var(--sans);
   font-weight: 800;
@@ -251,6 +266,8 @@
 .work-line {
   margin-top: 40px;
   height: 2px;
+  width: 100%;
+  max-width: 460px;
   background: var(--line);
   position: relative;
 }
@@ -264,8 +281,8 @@
   color: var(--dim);
 }
 
-/* ============ result ============ */
-.result { max-width: 900px; }
+/* ============ result — centered ============ */
+.result { max-width: 900px; width: 100%; display: flex; flex-direction: column; align-items: center; }
 .player {
   width: 100%;
   border: 1px solid var(--line);
@@ -278,12 +295,14 @@
 .err {
   margin-top: 28px;
   max-width: 620px;
+  width: 100%;
   border-left: 2px solid var(--red);
   padding: 14px 18px;
   font-family: var(--mono);
   font-size: 12.5px;
   color: var(--frost);
   background: rgba(229, 32, 42, 0.07);
+  text-align: left;
 }
 
 /* ============ foot ============ */
@@ -295,11 +314,12 @@
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--faint);
+  text-align: center;
 }
 
 @media (max-width: 640px) {
   .app { padding: 0 20px; }
   .stage { padding: 48px 0 80px; }
-  .index-item { padding-right: 16px; }
+  .index-item { padding: 14px 12px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 }
