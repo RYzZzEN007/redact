@@ -16,7 +16,7 @@ function phaseIndex(phase) {
   if (phase === "upload") return 0;
   if (phase === "scanning" || phase === "select") return 1;
   if (phase === "blurring") return 2;
-  return 3; // done
+  return 3;
 }
 
 function Wordmark() {
@@ -236,8 +236,8 @@ export default function App() {
               </div>
 
               <div className="actions">
-                <button className="btn" onClick={startScan} disabled={!file}>
-                  <span className="k">�myrow</span>Scan for faces
+                <button className="btn btn-primary" onClick={startScan} disabled={!file}>
+                  Scan for faces
                 </button>
               </div>
 
@@ -265,7 +265,7 @@ export default function App() {
                   >
                     <div className="shot">
                       <img src={`/faces/person_${p.id}.jpg`} alt={`Person ${p.id}`} />
-                      <div className="stamp"><span>Redacted</span></div>
+                      <div className="stamp"><span>REDACTED</span></div>
                     </div>
                     <div className="card-foot">
                       <span className="card-id">Person {p.id}</span>
@@ -301,8 +301,8 @@ export default function App() {
               <Eyebrow num="04" label="Export — Done" />
               <video className="player" src={resultUrl} controls />
               <div className="actions">
-                <a href={resultUrl} download="redacted.mp4" style={{ flex: 1, borderRight: "1px solid var(--line)" }}>
-                  <button className="btn" style={{ width: "100%" }}>
+                <a href={resultUrl} download="redacted.mp4" style={{ flex: 1 }}>
+                  <button className="btn btn-primary" style={{ width: "100%" }}>
                     <span className="k">↓</span>Download video
                   </button>
                 </a>

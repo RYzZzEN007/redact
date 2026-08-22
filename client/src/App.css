@@ -92,7 +92,7 @@
   text-transform: uppercase;
   color: var(--dim);
 }
-.eyebrow .rule { display: none; }   /* rule reads odd when centered — drop it */
+.eyebrow .rule { display: none; }
 
 /* ============ hero wordmark ============ */
 .hero { max-width: 780px; display: flex; flex-direction: column; align-items: center; }
@@ -151,36 +151,53 @@
 .actions {
   margin-top: 44px;
   display: flex;
-  gap: 0;
-  border-top: 1px solid var(--line);
+  gap: 12px;
   width: 100%;
   max-width: 620px;
 }
 .btn {
   font-family: var(--sans);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.01em;
-  padding: 20px 0;
-  background: none;
-  border: 0;
-  border-right: 1px solid var(--line);
+  padding: 18px 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
   color: var(--frost);
   cursor: pointer;
   flex: 1;
   text-align: center;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
-.btn:last-child { border-right: 0; }
-.btn:hover:not(:disabled) { background: var(--panel); }
-.btn:disabled { color: var(--faint); cursor: not-allowed; }
-.btn-redact { color: var(--red); font-weight: 700; }
-.btn-redact:hover:not(:disabled) { background: var(--red); color: var(--frost); }
+.btn:hover:not(:disabled) { border-color: var(--steel); background: #171B21; }
+.btn:disabled { color: var(--faint); background: transparent; cursor: not-allowed; }
+
+/* primary action — solid steel, shines */
+.btn-primary {
+  background: var(--steel);
+  border-color: var(--steel);
+  color: var(--ink);
+  font-weight: 700;
+}
+.btn-primary:hover:not(:disabled) { background: #8FB8C6; border-color: #8FB8C6; }
+.btn-primary:disabled { background: rgba(125,168,184,0.15); border-color: transparent; color: var(--faint); }
+
+/* redact — the act, solid red */
+.btn-redact {
+  background: var(--red);
+  border-color: var(--red);
+  color: var(--frost);
+  font-weight: 700;
+}
+.btn-redact:hover:not(:disabled) { background: #F0323B; border-color: #F0323B; }
+.btn-redact:disabled { background: rgba(229,32,42,0.15); border-color: transparent; color: var(--faint); }
+
 .btn .k {
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 0.1em;
-  color: var(--faint);
+  color: currentColor;
+  opacity: 0.6;
   margin-right: 12px;
 }
 
@@ -209,30 +226,31 @@
 .shot img { width: 100%; height: 100%; object-fit: cover; display: block; transition: filter 0.25s; }
 .card.on .shot img { filter: blur(10px) saturate(0.4) brightness(0.7); }
 
+/* slanted redaction stamp with text */
 .stamp {
   position: absolute;
   top: 44%;
-  left: 0;
-  width: 100%;
-  height: 15%;
+  left: -8%;
+  width: 116%;
+  height: 16%;
   background: var(--red);
-  transform: scaleX(0);
+  transform: rotate(-6deg) scaleX(0);
   transform-origin: left center;
-  transition: transform 0.28s cubic-bezier(0.7, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.65, 0, 0.35, 1);
   display: flex;
   align-items: center;
-  padding-left: 12px;
+  justify-content: center;
 }
 .stamp span {
   font-family: var(--mono);
   font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.24em;
+  font-weight: 700;
+  letter-spacing: 0.28em;
   color: var(--frost);
   opacity: 0;
-  transition: opacity 0.1s 0.16s;
+  transition: opacity 0.1s 0.18s;
 }
-.card.on .stamp { transform: scaleX(1); }
+.card.on .stamp { transform: rotate(-6deg) scaleX(1); }
 .card.on .stamp span { opacity: 1; }
 
 .card-foot {
