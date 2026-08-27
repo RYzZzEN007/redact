@@ -47,23 +47,36 @@ function Eyebrow({ num, label }) {
   );
 }
 
-function Working({ num, label, value, caption }) {
+function Working({ num, label, value, caption, queuePos }) {
   const pct = Math.round(value * 100);
+  const waiting = queuePos > 0; // >0 means real jobs ahead; 0 = next/starting
   return (
     <div className="work">
       <Eyebrow num={num} label={label} />
-      <div className="work-num">
-        <span className="pct">{String(pct).padStart(2, "0")}</span>
-        <span style={{ color: "var(--faint)" }}>%</span>
-      </div>
-      <div className="work-line">
-        <div className="work-fill" style={{ width: `${pct}%` }} />
-      </div>
-      <div className="work-label">{pct >= 99 ? "Encoding output" : caption}</div>
+      {waiting ? (
+        <>
+          <div className="work-label" style={{ marginTop: 0 }}>
+            Waiting for resources to free up…
+          </div>
+          <div className="work-line">
+            <div className="work-fill work-fill-indeterminate" />
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="work-num">
+            <span className="pct">{String(pct).padStart(2, "0")}</span>
+            <span style={{ color: "var(--faint)" }}>%</span>
+          </div>
+          <div className="work-line">
+            <div className="work-fill" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="work-label">{pct >= 99 ? "Encoding output" : caption}</div>
+        </>
+      )}
     </div>
   );
 }
-
 const screen = {
   initial: { opacity: 0, y: 12 },
   animate: { opacity: 1, y: 0 },
@@ -78,6 +91,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [jobId, setJobId] = useState(null);
   const [progress, setProgress] = useState(0);
+  const [queuePos, setQueuePos] = useState(-1);
   const [people, setPeople] = useState([]);
   const [videoPath, setVideoPath] = useState(null);
   const [selected, setSelected] = useState(new Set());
@@ -95,6 +109,7 @@ export default function App() {
         const s = await res.json();
         if (!alive) return;
         setProgress(s.progress || 0);
+        setQueuePos(typeof s.position === "number" ? s.position : -1);
         if (s.status === "ready") {
           if (s.kind === "scan") {
             if (!s.people || s.people.length === 0) {
@@ -141,7 +156,7 @@ export default function App() {
 
   const startScan = async () => {
     if (!file) return;
-    setError(""); setProgress(0);
+    setError(""); setProgress(0); setQueuePos(-1);
     const form = new FormData();
     form.append("video", file);
     try {
@@ -154,7 +169,7 @@ export default function App() {
 
   const startBlur = async () => {
     if (selected.size === 0) return;
-    setError(""); setProgress(0);
+    setError(""); setProgress(0); setQueuePos(-1);
     try {
       const res = await fetch("/api/redact", {
         method: "POST",
@@ -170,7 +185,7 @@ export default function App() {
   const reset = useCallback(async () => {
     try { await fetch("/api/wipe", { method: "POST" }); } catch {}
     setFile(null); setJobId(null); setPeople([]); setVideoPath(null);
-    setSelected(new Set()); setResultUrl(null); setProgress(0);
+    setSelected(new Set()); setResultUrl(null); setProgress(0); setQueuePos(-1);
     setError(""); setPhase("upload");
     if (inputRef.current) inputRef.current.value = "";
   }, []);
@@ -248,7 +263,7 @@ export default function App() {
           {phase === "scanning" && (
             <motion.div key="scanning" {...screen}>
               <Working num="02" label="Select — Scanning" value={progress}
-                caption="Detecting and grouping faces" />
+                caption="Detecting and grouping faces" queuePos={queuePos} />
             </motion.div>
           )}
 
@@ -292,7 +307,7 @@ export default function App() {
           {phase === "blurring" && (
             <motion.div key="blurring" {...screen}>
               <Working num="03" label="Redact" value={progress}
-                caption="Blurring selected faces frame by frame" />
+                caption="Blurring selected faces frame by frame" queuePos={queuePos} />
             </motion.div>
           )}
 

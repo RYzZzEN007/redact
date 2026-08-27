@@ -341,3 +341,14 @@
   .index-item { padding: 14px 12px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 }
+/* indeterminate waiting bar for queued jobs */
+.work-fill-indeterminate {
+  position: absolute;
+  width: 30%;
+  background: var(--steel);
+  animation: slide 1.4s ease-in-out infinite;
+}
+@keyframes slide {
+  0%   { left: -30%; }
+  100% { left: 100%; }
+}
