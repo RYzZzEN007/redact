@@ -1,0 +1,9 @@
+**/node_modules
+python/venv
+python/uploads
+python/outputs
+python/faces
+python/embeddings
+client/dist
+.git
+*.md
