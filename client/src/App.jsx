@@ -4,6 +4,8 @@ import "./App.css";
 
 const POLL_MS = 700;
 const WIPE = [0.7, 0, 0.2, 1];
+const MAX_MB = 100;
+const MAX_SECONDS = 45;
 
 const PHASES = [
   { key: "upload", label: "Upload" },
@@ -147,35 +149,37 @@ export default function App() {
     return () => { alive = false; clearTimeout(timer); };
   }, [phase, jobId]);
 
-   const accept = (f) => {
+  const accept = (f) => {
     if (!f) return;
     if (!/\.(mp4|mov)$/i.test(f.name)) {
       setError("Only .mp4 and .mov files are supported.");
       return;
     }
-    if (f.size > 100 * 1024 * 1024) {
-      setError("That file is over 100 MB. Please use a smaller clip.");
+    if (f.size > MAX_MB * 1024 * 1024) {
+      setError(`That file is over ${MAX_MB} MB. Please use a smaller clip.`);
       return;
     }
-    // read duration in-browser before uploading
+    // read duration in-browser before uploading, so long clips are rejected early
     const url = URL.createObjectURL(f);
     const vid = document.createElement("video");
     vid.preload = "metadata";
     vid.onloadedmetadata = () => {
       URL.revokeObjectURL(url);
-      if (vid.duration > 45) {
-        setError(`Clips must be 45 seconds or shorter. Yours is ${Math.round(vid.duration)}s.`);
+      if (vid.duration > MAX_SECONDS) {
+        setError(`Clips must be ${MAX_SECONDS} seconds or shorter. Yours is ${Math.round(vid.duration)}s.`);
         return;
       }
       setError("");
       setFile(f);
     };
-    vid.onerror = () => { URL.revokeObjectURL(url); setError(""); setFile(f); }; // if metadata fails, let server enforce
+    vid.onerror = () => {
+      URL.revokeObjectURL(url);
+      setError("");
+      setFile(f); // if metadata can't be read, let the server enforce the limit
+    };
     vid.src = url;
-  };git commit -m "feat: 45s duration and 100MB caps, raise ceiling to 15min"
+  };
 
-  // Upload with XMLHttpRequest so we get real upload progress (fetch can't
-  // report upload progress — only download). The glyph bar fills as bytes go up.
   const startScan = () => {
     if (!file || uploading) return;
     setError("");
@@ -189,9 +193,7 @@ export default function App() {
     xhr.open("POST", "/api/scan");
 
     xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        setUploadPct(Math.round((e.loaded / e.total) * 100));
-      }
+      if (e.lengthComputable) setUploadPct(Math.round((e.loaded / e.total) * 100));
     };
 
     xhr.onload = () => {
@@ -207,7 +209,12 @@ export default function App() {
           setError("Upload finished but the server response was invalid.");
         }
       } else {
-        setError("Upload failed — is the backend running?");
+        try {
+          const { error: msg } = JSON.parse(xhr.responseText);
+          setError(msg || "Upload failed — is the backend running?");
+        } catch {
+          setError("Upload failed — is the backend running?");
+        }
       }
     };
 
@@ -291,25 +298,14 @@ export default function App() {
                 onKeyDown={(e) => e.key === "Enter" && !uploading && inputRef.current?.click()}
               >
                 <div className="drop-glyph">
-                  <div
-                    className="drop-glyph-fill"
-                    style={{ width: uploading ? `${uploadPct}%` : "100%" }}
-                  />
+                  <div className="drop-glyph-fill" style={{ width: uploading ? `${uploadPct}%` : "100%" }} />
                 </div>
                 <div>
                   <div className="drop-primary">
-                    {uploading
-                      ? `Uploading… ${uploadPct}%`
-                      : file
-                      ? file.name
-                      : "Drop a clip, or click to browse"}
+                    {uploading ? `Uploading… ${uploadPct}%` : file ? file.name : "Drop a clip, or click to browse"}
                   </div>
                   <div className="drop-sub">
-                    {uploading
-                      ? "Sending your clip to the server"
-                      : file
-                      ? "Click to choose another"
-                      : "MP4 / MOV · up to 200 MB"}
+                    {uploading ? "Sending your clip to the server" : file ? "Click to choose another" : `MP4 / MOV · under ${MAX_SECONDS}s · up to ${MAX_MB} MB`}
                   </div>
                 </div>
                 <input ref={inputRef} type="file" accept="video/mp4,video/quicktime"
