@@ -172,7 +172,7 @@ export default function App() {
     };
     vid.onerror = () => { URL.revokeObjectURL(url); setError(""); setFile(f); }; // if metadata fails, let server enforce
     vid.src = url;
-  };
+  };git commit -m "feat: 45s duration and 100MB caps, raise ceiling to 15min"
 
   // Upload with XMLHttpRequest so we get real upload progress (fetch can't
   // report upload progress — only download). The glyph bar fills as bytes go up.
