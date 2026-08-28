@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="redact-logo.png" width="420" alt="REDACT" />
+<img src="redact-logo_for_readme.png" width="340" alt="REDACT" />
 
 ### Selective face anonymization for video — blur *this* person, not *that* one.
 
