@@ -5,6 +5,21 @@ const multer = require("multer");
 const path = require("path");
 const crypto = require("crypto");
 const { spawn } = require("child_process");
+const { spawn, execFile } = require("child_process");
+const MAX_DURATION_S = 45;
+
+function getDuration(filePath) {
+  return new Promise((resolve) => {
+    execFile("ffprobe", [
+      "-v", "error", "-show_entries", "format=duration",
+      "-of", "default=noprint_wrappers=1:nokey=1", filePath
+    ], (err, stdout) => {
+      if (err) return resolve(null); // if ffprobe fails, don't block — let it through
+      const d = parseFloat(stdout.trim());
+      resolve(Number.isFinite(d) ? d : null);
+    });
+  });
+}
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -13,7 +28,7 @@ const PYTHON_DIR = path.join(__dirname, "..", "python");
 const PYTHON_BIN = process.env.PYTHON_BIN || path.join(PYTHON_DIR, "venv", "bin", "python");
 
 // --- watchdog thresholds ---
-const MAX_JOB_MS = 600 * 1000;   // hard ceiling: no job may run longer than 10 min
+const MAX_JOB_MS = 900 * 1000;   // hard ceiling: no job may run longer than 10 min
 const STALL_MS = 180 * 1000;      // no progress for 180s => considered hung
 const WATCHDOG_EVERY_MS = 10 * 1000; // check every 10s
 
@@ -197,14 +212,21 @@ const storage = multer.diskStorage({
     cb(null, `upload_${Date.now()}${ext}`);
   },
 });
-const upload = multer({ storage, limits: { fileSize: 200 * 1024 * 1024 } });
+const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024 } });
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", message: "Redact backend is running" });
 });
 
-app.post("/api/scan", upload.single("video"), (req, res) => {
+app.post("/api/scan", upload.single("video"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No video file received" });
+
+  // reject clips that are too long to process in reasonable time
+  const duration = await getDuration(req.file.path);
+  if (duration !== null && duration > MAX_DURATION_S) {
+    fs.rmSync(req.file.path, { force: true }); // wipe the rejected upload
+    return res.status(400).json({ error: `Clips must be ${MAX_DURATION_S} seconds or shorter. Yours is ${Math.round(duration)}s.` });
+  }
 
   const jobId = crypto.randomUUID();
   const videoPath = req.file.path;

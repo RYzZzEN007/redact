@@ -147,14 +147,31 @@ export default function App() {
     return () => { alive = false; clearTimeout(timer); };
   }, [phase, jobId]);
 
-  const accept = (f) => {
+   const accept = (f) => {
     if (!f) return;
     if (!/\.(mp4|mov)$/i.test(f.name)) {
       setError("Only .mp4 and .mov files are supported.");
       return;
     }
-    setError("");
-    setFile(f);
+    if (f.size > 100 * 1024 * 1024) {
+      setError("That file is over 100 MB. Please use a smaller clip.");
+      return;
+    }
+    // read duration in-browser before uploading
+    const url = URL.createObjectURL(f);
+    const vid = document.createElement("video");
+    vid.preload = "metadata";
+    vid.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      if (vid.duration > 45) {
+        setError(`Clips must be 45 seconds or shorter. Yours is ${Math.round(vid.duration)}s.`);
+        return;
+      }
+      setError("");
+      setFile(f);
+    };
+    vid.onerror = () => { URL.revokeObjectURL(url); setError(""); setFile(f); }; // if metadata fails, let server enforce
+    vid.src = url;
   };
 
   // Upload with XMLHttpRequest so we get real upload progress (fetch can't
