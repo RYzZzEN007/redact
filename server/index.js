@@ -4,22 +4,7 @@ const cors = require("cors");
 const multer = require("multer");
 const path = require("path");
 const crypto = require("crypto");
-const { spawn } = require("child_process");
 const { spawn, execFile } = require("child_process");
-const MAX_DURATION_S = 45;
-
-function getDuration(filePath) {
-  return new Promise((resolve) => {
-    execFile("ffprobe", [
-      "-v", "error", "-show_entries", "format=duration",
-      "-of", "default=noprint_wrappers=1:nokey=1", filePath
-    ], (err, stdout) => {
-      if (err) return resolve(null); // if ffprobe fails, don't block — let it through
-      const d = parseFloat(stdout.trim());
-      resolve(Number.isFinite(d) ? d : null);
-    });
-  });
-}
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -27,10 +12,11 @@ const PORT = process.env.PORT || 3001;
 const PYTHON_DIR = path.join(__dirname, "..", "python");
 const PYTHON_BIN = process.env.PYTHON_BIN || path.join(PYTHON_DIR, "venv", "bin", "python");
 
-// --- watchdog thresholds ---
-const MAX_JOB_MS = 900 * 1000;   // hard ceiling: no job may run longer than 10 min
-const STALL_MS = 180 * 1000;      // no progress for 180s => considered hung
-const WATCHDOG_EVERY_MS = 10 * 1000; // check every 10s
+// --- input + watchdog limits ---
+const MAX_DURATION_S = 45;
+const MAX_JOB_MS = 900 * 1000;   // hard ceiling: 15 min backstop
+const STALL_MS = 180 * 1000;     // no progress for 3 min => hung
+const WATCHDOG_EVERY_MS = 10 * 1000;
 
 app.use(cors());
 app.use(express.json());
@@ -38,6 +24,7 @@ app.use(express.json());
 app.use("/faces", express.static(path.join(PYTHON_DIR, "faces")));
 app.use("/outputs", express.static(path.join(PYTHON_DIR, "outputs")));
 
+// serve the built React app
 const CLIENT_DIST = path.join(__dirname, "..", "client", "dist");
 app.use(express.static(CLIENT_DIST));
 
@@ -56,6 +43,22 @@ function wipeSession() {
     }
   }
   return removed;
+}
+
+// ---------- ffprobe duration check ----------
+function getDuration(filePath) {
+  return new Promise((resolve) => {
+    execFile(
+      "ffprobe",
+      ["-v", "error", "-show_entries", "format=duration",
+       "-of", "default=noprint_wrappers=1:nokey=1", filePath],
+      (err, stdout) => {
+        if (err) return resolve(null); // if ffprobe fails, don't block — let it through
+        const d = parseFloat(stdout.trim());
+        resolve(Number.isFinite(d) ? d : null);
+      }
+    );
+  });
 }
 
 // ---------- job registry + queue ----------
@@ -93,7 +96,7 @@ function pump() {
   job.status = "running";
   job.position = -1;
   job.startedAt = Date.now();
-  job.lastProgressAt = Date.now();   // for stall detection
+  job.lastProgressAt = Date.now();
   refreshPositions();
   stats.started++;
   log(`job ${jobId.slice(0, 8)} ${job.kind} started (${queue.length} still queued)`);
@@ -109,14 +112,14 @@ function finishActive(jobId, ok) {
   const secs = job && job.startedAt ? ((Date.now() - job.startedAt) / 1000).toFixed(1) : "?";
   if (ok) { stats.completed++; log(`job ${jobId.slice(0, 8)} ${kind} finished in ${secs}s`); }
   else    { stats.failed++;    log(`job ${jobId.slice(0, 8)} ${kind} FAILED after ${secs}s`); }
-  if (activeJob === jobId) activeJob = null;   // only clear if it's still the active one
+  if (activeJob === jobId) activeJob = null;
   pump();
 }
 
 function runWorker(jobId, args, onDone) {
   const job = jobs.get(jobId);
   const worker = spawn(PYTHON_BIN, args, { cwd: PYTHON_DIR });
-  job.proc = worker;   // keep the handle so the watchdog can kill it
+  job.proc = worker;
 
   let stdout = "";
   let stderrLog = "";
@@ -134,7 +137,7 @@ function runWorker(jobId, args, onDone) {
         const done = Number(m[1]);
         const total = Number(m[2]);
         job.progress = total > 0 ? Math.min(1, done / total) : 0;
-        job.lastProgressAt = Date.now();   // progress advanced — reset stall timer
+        job.lastProgressAt = Date.now();
       } else if (line.trim()) {
         stderrLog += line + "\n";
       }
@@ -142,7 +145,6 @@ function runWorker(jobId, args, onDone) {
   });
 
   worker.on("close", (code) => {
-    // if the watchdog already killed this job, don't double-finish it
     if (job.killed) return;
     if (code !== 0) {
       console.error("worker failed:", stderrLog);
@@ -178,9 +180,7 @@ function killJob(jobId, reason) {
   job.killed = true;
   job.status = "error";
   job.error = reason;
-  if (job.proc) {
-    try { job.proc.kill("SIGKILL"); } catch {}
-  }
+  if (job.proc) { try { job.proc.kill("SIGKILL"); } catch {} }
   stats.killed++;
   const secs = job.startedAt ? ((Date.now() - job.startedAt) / 1000).toFixed(1) : "?";
   log(`job ${jobId.slice(0, 8)} ${job.kind} KILLED after ${secs}s — ${reason}`);
@@ -191,7 +191,7 @@ function killJob(jobId, reason) {
 setInterval(() => {
   if (!activeJob) return;
   const job = jobs.get(activeJob);
-  if (!job || !job.startedAt) { activeJob = null; pump(); return; }  // ghost — clear it
+  if (!job || !job.startedAt) { activeJob = null; pump(); return; }
 
   const now = Date.now();
   const ranFor = now - job.startedAt;
@@ -212,19 +212,19 @@ const storage = multer.diskStorage({
     cb(null, `upload_${Date.now()}${ext}`);
   },
 });
-const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024 } });
+const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024 } }); // 100 MB cap
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", message: "Redact backend is running" });
 });
 
+// POST /api/scan — enqueue a scan (rejects clips longer than the cap)
 app.post("/api/scan", upload.single("video"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No video file received" });
 
-  // reject clips that are too long to process in reasonable time
   const duration = await getDuration(req.file.path);
   if (duration !== null && duration > MAX_DURATION_S) {
-    fs.rmSync(req.file.path, { force: true }); // wipe the rejected upload
+    fs.rmSync(req.file.path, { force: true });
     return res.status(400).json({ error: `Clips must be ${MAX_DURATION_S} seconds or shorter. Yours is ${Math.round(duration)}s.` });
   }
 
@@ -248,6 +248,7 @@ app.post("/api/scan", upload.single("video"), async (req, res) => {
   res.json({ jobId });
 });
 
+// POST /api/redact — enqueue a blur
 app.post("/api/redact", (req, res) => {
   const { videoPath, selectedIds } = req.body;
 
@@ -283,6 +284,7 @@ app.post("/api/redact", (req, res) => {
   res.json({ jobId });
 });
 
+// GET /api/status/:id
 app.get("/api/status/:id", (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job) return res.status(404).json({ error: "Unknown job" });
@@ -298,6 +300,7 @@ app.get("/api/status/:id", (req, res) => {
   });
 });
 
+// GET /api/stats
 app.get("/api/stats", (req, res) => {
   res.json({
     ...stats,
@@ -307,7 +310,7 @@ app.get("/api/stats", (req, res) => {
   });
 });
 
-// manual escape hatch: force-clear a stuck queue without redeploying
+// manual escape hatch to force-clear a stuck queue
 app.post("/api/admin/reset-queue", (req, res) => {
   if (activeJob) {
     const job = jobs.get(activeJob);
@@ -321,6 +324,7 @@ app.post("/api/admin/reset-queue", (req, res) => {
   res.json({ ok: true, removed });
 });
 
+// POST /api/wipe — clear queue + files, but don't yank a running job's files
 app.post("/api/wipe", (req, res) => {
   queue.length = 0;
   for (const [id, job] of jobs) {
@@ -330,10 +334,12 @@ app.post("/api/wipe", (req, res) => {
   res.json({ ok: true, removed, deferred: !!activeJob });
 });
 
+// SPA fallback
 app.get(/^(?!\/api|\/faces|\/outputs).*/, (req, res) => {
   res.sendFile(path.join(CLIENT_DIST, "index.html"));
 });
 
+// swallow harmless range-request errors from video scrubbing
 app.use((err, req, res, next) => {
   if (err && err.status === 416) return res.status(416).end();
   console.error(err);
