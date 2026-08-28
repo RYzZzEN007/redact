@@ -135,7 +135,19 @@
   transition: border-color 0.2s, background 0.2s;
 }
 .drop:hover, .drop.drag { border-color: var(--steel); background: #14171C; }
-.drop-glyph { width: 56px; height: 20px; background: var(--frost); flex: none; }
+.drop-glyph {
+  width: 56px;
+  height: 20px;
+  flex: none;
+  background: rgba(233, 241, 246, 0.12);
+  overflow: hidden;
+}
+.drop-glyph-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--frost);
+  transition: width 0.2s ease;
+}
 .drop-primary { font-size: 17px; font-weight: 500; }
 .drop-sub {
   font-family: var(--mono);
@@ -145,7 +157,7 @@
   color: var(--faint);
   margin-top: 6px;
 }
-.drop.has-file .drop-glyph { background: var(--steel); }
+.drop.has-file .drop-glyph-fill { background: var(--steel); }
 
 /* ============ actions — centered ============ */
 .actions {

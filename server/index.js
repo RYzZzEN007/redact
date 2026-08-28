@@ -10,8 +10,12 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 const PYTHON_DIR = path.join(__dirname, "..", "python");
-// In a container we run one system python; locally we use the venv. Env var lets us switch.
 const PYTHON_BIN = process.env.PYTHON_BIN || path.join(PYTHON_DIR, "venv", "bin", "python");
+
+// --- watchdog thresholds ---
+const MAX_JOB_MS = 300 * 1000;   // hard ceiling: no job may run longer than 5 min
+const STALL_MS = 90 * 1000;      // no progress for 90s => considered hung
+const WATCHDOG_EVERY_MS = 10 * 1000; // check every 10s
 
 app.use(cors());
 app.use(express.json());
@@ -19,7 +23,6 @@ app.use(express.json());
 app.use("/faces", express.static(path.join(PYTHON_DIR, "faces")));
 app.use("/outputs", express.static(path.join(PYTHON_DIR, "outputs")));
 
-// serve the built React app (produced by `npm run build` in client/)
 const CLIENT_DIST = path.join(__dirname, "..", "client", "dist");
 app.use(express.static(CLIENT_DIST));
 
@@ -41,15 +44,11 @@ function wipeSession() {
 }
 
 // ---------- job registry + queue ----------
-// In memory only: jobs die with the process, exactly like our files. No DB.
-// One worker runs at a time (concurrency 1). Everything else waits in line,
-// so the API stays responsive and a busy CPU never spawns ten workers at once.
-const jobs = new Map();   // jobId -> { kind, status, progress, position, args, onDone, ... }
-const queue = [];         // jobIds waiting to run, in order
-let activeJob = null;     // jobId currently running, or null
+const jobs = new Map();
+const queue = [];
+let activeJob = null;
 
-// lightweight running stats so you can glance at overnight activity
-const stats = { started: 0, completed: 0, failed: 0, bootedAt: new Date().toISOString() };
+const stats = { started: 0, completed: 0, failed: 0, killed: 0, bootedAt: new Date().toISOString() };
 
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
@@ -61,7 +60,6 @@ function enqueue(jobId) {
   pump();
 }
 
-// each queued job knows how many are ahead of it (0 = next up)
 function refreshPositions() {
   queue.forEach((id, i) => {
     const job = jobs.get(id);
@@ -70,16 +68,17 @@ function refreshPositions() {
 }
 
 function pump() {
-  if (activeJob) return;             // already running one
+  if (activeJob) return;
   const jobId = queue.shift();
-  if (!jobId) return;                // nothing waiting
+  if (!jobId) return;
   const job = jobs.get(jobId);
-  if (!job) return pump();           // was wiped; skip
+  if (!job) return pump();
 
   activeJob = jobId;
   job.status = "running";
   job.position = -1;
   job.startedAt = Date.now();
+  job.lastProgressAt = Date.now();   // for stall detection
   refreshPositions();
   stats.started++;
   log(`job ${jobId.slice(0, 8)} ${job.kind} started (${queue.length} still queued)`);
@@ -95,13 +94,14 @@ function finishActive(jobId, ok) {
   const secs = job && job.startedAt ? ((Date.now() - job.startedAt) / 1000).toFixed(1) : "?";
   if (ok) { stats.completed++; log(`job ${jobId.slice(0, 8)} ${kind} finished in ${secs}s`); }
   else    { stats.failed++;    log(`job ${jobId.slice(0, 8)} ${kind} FAILED after ${secs}s`); }
-  activeJob = null;
-  pump();                            // start the next one
+  if (activeJob === jobId) activeJob = null;   // only clear if it's still the active one
+  pump();
 }
 
 function runWorker(jobId, args, onDone) {
   const job = jobs.get(jobId);
   const worker = spawn(PYTHON_BIN, args, { cwd: PYTHON_DIR });
+  job.proc = worker;   // keep the handle so the watchdog can kill it
 
   let stdout = "";
   let stderrLog = "";
@@ -109,7 +109,6 @@ function runWorker(jobId, args, onDone) {
 
   worker.stdout.on("data", (c) => (stdout += c));
 
-  // stderr carries PROGRESS lines; chunks can split mid-line, so buffer the tail
   worker.stderr.on("data", (chunk) => {
     buf += chunk.toString();
     const lines = buf.split("\n");
@@ -120,6 +119,7 @@ function runWorker(jobId, args, onDone) {
         const done = Number(m[1]);
         const total = Number(m[2]);
         job.progress = total > 0 ? Math.min(1, done / total) : 0;
+        job.lastProgressAt = Date.now();   // progress advanced — reset stall timer
       } else if (line.trim()) {
         stderrLog += line + "\n";
       }
@@ -127,6 +127,8 @@ function runWorker(jobId, args, onDone) {
   });
 
   worker.on("close", (code) => {
+    // if the watchdog already killed this job, don't double-finish it
+    if (job.killed) return;
     if (code !== 0) {
       console.error("worker failed:", stderrLog);
       job.status = "error";
@@ -144,7 +146,48 @@ function runWorker(jobId, args, onDone) {
       finishActive(jobId, false);
     }
   });
+
+  worker.on("error", (err) => {
+    if (job.killed) return;
+    console.error("worker spawn error:", err);
+    job.status = "error";
+    job.error = "Worker could not start";
+    finishActive(jobId, false);
+  });
 }
+
+// ---------- watchdog: prevents the queue from ever deadlocking ----------
+function killJob(jobId, reason) {
+  const job = jobs.get(jobId);
+  if (!job) { if (activeJob === jobId) activeJob = null; pump(); return; }
+  job.killed = true;
+  job.status = "error";
+  job.error = reason;
+  if (job.proc) {
+    try { job.proc.kill("SIGKILL"); } catch {}
+  }
+  stats.killed++;
+  const secs = job.startedAt ? ((Date.now() - job.startedAt) / 1000).toFixed(1) : "?";
+  log(`job ${jobId.slice(0, 8)} ${job.kind} KILLED after ${secs}s — ${reason}`);
+  if (activeJob === jobId) activeJob = null;
+  pump();
+}
+
+setInterval(() => {
+  if (!activeJob) return;
+  const job = jobs.get(activeJob);
+  if (!job || !job.startedAt) { activeJob = null; pump(); return; }  // ghost — clear it
+
+  const now = Date.now();
+  const ranFor = now - job.startedAt;
+  const sinceProgress = now - (job.lastProgressAt || job.startedAt);
+
+  if (ranFor > MAX_JOB_MS) {
+    killJob(activeJob, `exceeded max runtime (${MAX_JOB_MS / 1000}s)`);
+  } else if (sinceProgress > STALL_MS) {
+    killJob(activeJob, `stalled — no progress for ${STALL_MS / 1000}s`);
+  }
+}, WATCHDOG_EVERY_MS);
 
 // ---------- upload ----------
 const storage = multer.diskStorage({
@@ -160,7 +203,6 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", message: "Redact backend is running" });
 });
 
-// POST /api/scan — enqueue a scan, return a jobId immediately
 app.post("/api/scan", upload.single("video"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No video file received" });
 
@@ -184,7 +226,6 @@ app.post("/api/scan", upload.single("video"), (req, res) => {
   res.json({ jobId });
 });
 
-// POST /api/redact — enqueue a blur, return a jobId immediately
 app.post("/api/redact", (req, res) => {
   const { videoPath, selectedIds } = req.body;
 
@@ -220,15 +261,14 @@ app.post("/api/redact", (req, res) => {
   res.json({ jobId });
 });
 
-// GET /api/status/:id — polling endpoint: drives progress bar AND queue position
 app.get("/api/status/:id", (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job) return res.status(404).json({ error: "Unknown job" });
   res.json({
     kind: job.kind,
-    status: job.status,            // queued | running | ready | error
+    status: job.status,
     progress: job.progress,
-    position: job.status === "queued" ? job.position : -1, // 0 = next up
+    position: job.status === "queued" ? job.position : -1,
     people: job.people,
     videoPath: job.videoPath,
     output: job.output,
@@ -236,7 +276,6 @@ app.get("/api/status/:id", (req, res) => {
   });
 });
 
-// GET /api/stats — private glance at activity (how busy has it been?)
 app.get("/api/stats", (req, res) => {
   res.json({
     ...stats,
@@ -246,24 +285,33 @@ app.get("/api/stats", (req, res) => {
   });
 });
 
-// POST /api/wipe — clear the queue and forget finished jobs, but DON'T yank
-// files out from under a job that's currently running (that corrupts its output).
+// manual escape hatch: force-clear a stuck queue without redeploying
+app.post("/api/admin/reset-queue", (req, res) => {
+  if (activeJob) {
+    const job = jobs.get(activeJob);
+    if (job && job.proc) { try { job.proc.kill("SIGKILL"); } catch {} }
+  }
+  queue.length = 0;
+  activeJob = null;
+  const removed = wipeSession();
+  jobs.clear();
+  log(`queue force-reset via admin endpoint (${removed} files wiped)`);
+  res.json({ ok: true, removed });
+});
+
 app.post("/api/wipe", (req, res) => {
-  queue.length = 0;                 // drop anything waiting
-  for (const [id, job] of jobs) {   // forget every job except the one running now
+  queue.length = 0;
+  for (const [id, job] of jobs) {
     if (id !== activeJob) jobs.delete(id);
   }
-  const removed = activeJob ? 0 : wipeSession();  // only delete files if nothing's mid-run
+  const removed = activeJob ? 0 : wipeSession();
   res.json({ ok: true, removed, deferred: !!activeJob });
 });
 
-// SPA fallback: any route that isn't an API or static file returns the app
 app.get(/^(?!\/api|\/faces|\/outputs).*/, (req, res) => {
   res.sendFile(path.join(CLIENT_DIST, "index.html"));
 });
 
-// swallow harmless range-request errors from video scrubbing (browser asks for
-// a byte range that no longer matches a mid-write/just-wiped file)
 app.use((err, req, res, next) => {
   if (err && err.status === 416) return res.status(416).end();
   console.error(err);

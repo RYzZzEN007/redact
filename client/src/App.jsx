@@ -49,7 +49,7 @@ function Eyebrow({ num, label }) {
 
 function Working({ num, label, value, caption, queuePos }) {
   const pct = Math.round(value * 100);
-  const waiting = queuePos > 0; // >0 means real jobs ahead; 0 = next/starting
+  const waiting = queuePos > 0;
   return (
     <div className="work">
       <Eyebrow num={num} label={label} />
@@ -77,6 +77,7 @@ function Working({ num, label, value, caption, queuePos }) {
     </div>
   );
 }
+
 const screen = {
   initial: { opacity: 0, y: 12 },
   animate: { opacity: 1, y: 0 },
@@ -92,6 +93,8 @@ export default function App() {
   const [jobId, setJobId] = useState(null);
   const [progress, setProgress] = useState(0);
   const [queuePos, setQueuePos] = useState(-1);
+  const [uploading, setUploading] = useState(false);
+  const [uploadPct, setUploadPct] = useState(0);
   const [people, setPeople] = useState([]);
   const [videoPath, setVideoPath] = useState(null);
   const [selected, setSelected] = useState(new Set());
@@ -154,17 +157,49 @@ export default function App() {
     setFile(f);
   };
 
-  const startScan = async () => {
-    if (!file) return;
-    setError(""); setProgress(0); setQueuePos(-1);
+  // Upload with XMLHttpRequest so we get real upload progress (fetch can't
+  // report upload progress — only download). The glyph bar fills as bytes go up.
+  const startScan = () => {
+    if (!file || uploading) return;
+    setError("");
+    setUploading(true);
+    setUploadPct(0);
+
     const form = new FormData();
     form.append("video", file);
-    try {
-      const res = await fetch("/api/scan", { method: "POST", body: form });
-      if (!res.ok) throw new Error();
-      const { jobId: id } = await res.json();
-      setJobId(id); setPhase("scanning");
-    } catch { setError("Upload failed — is the backend running?"); }
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/scan");
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        setUploadPct(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      setUploading(false);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const { jobId: id } = JSON.parse(xhr.responseText);
+          setProgress(0);
+          setQueuePos(-1);
+          setJobId(id);
+          setPhase("scanning");
+        } catch {
+          setError("Upload finished but the server response was invalid.");
+        }
+      } else {
+        setError("Upload failed — is the backend running?");
+      }
+    };
+
+    xhr.onerror = () => {
+      setUploading(false);
+      setError("Upload failed — network error.");
+    };
+
+    xhr.send(form);
   };
 
   const startBlur = async () => {
@@ -186,6 +221,7 @@ export default function App() {
     try { await fetch("/api/wipe", { method: "POST" }); } catch {}
     setFile(null); setJobId(null); setPeople([]); setVideoPath(null);
     setSelected(new Set()); setResultUrl(null); setProgress(0); setQueuePos(-1);
+    setUploading(false); setUploadPct(0);
     setError(""); setPhase("upload");
     if (inputRef.current) inputRef.current.value = "";
   }, []);
@@ -229,21 +265,34 @@ export default function App() {
               </p>
 
               <div
-                className={`drop ${drag ? "drag" : ""} ${file ? "has-file" : ""}`}
-                onClick={() => inputRef.current?.click()}
-                onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+                className={`drop ${drag ? "drag" : ""} ${file ? "has-file" : ""} ${uploading ? "uploading" : ""}`}
+                onClick={() => { if (!uploading) inputRef.current?.click(); }}
+                onDragOver={(e) => { e.preventDefault(); if (!uploading) setDrag(true); }}
                 onDragLeave={() => setDrag(false)}
-                onDrop={(e) => { e.preventDefault(); setDrag(false); accept(e.dataTransfer.files[0]); }}
+                onDrop={(e) => { e.preventDefault(); setDrag(false); if (!uploading) accept(e.dataTransfer.files[0]); }}
                 role="button" tabIndex={0}
-                onKeyDown={(e) => e.key === "Enter" && inputRef.current?.click()}
+                onKeyDown={(e) => e.key === "Enter" && !uploading && inputRef.current?.click()}
               >
-                <div className="drop-glyph" />
+                <div className="drop-glyph">
+                  <div
+                    className="drop-glyph-fill"
+                    style={{ width: uploading ? `${uploadPct}%` : "100%" }}
+                  />
+                </div>
                 <div>
                   <div className="drop-primary">
-                    {file ? file.name : "Drop a clip, or click to browse"}
+                    {uploading
+                      ? `Uploading… ${uploadPct}%`
+                      : file
+                      ? file.name
+                      : "Drop a clip, or click to browse"}
                   </div>
                   <div className="drop-sub">
-                    {file ? "Click to choose another" : "MP4 / MOV · up to 200 MB"}
+                    {uploading
+                      ? "Sending your clip to the server"
+                      : file
+                      ? "Click to choose another"
+                      : "MP4 / MOV · up to 200 MB"}
                   </div>
                 </div>
                 <input ref={inputRef} type="file" accept="video/mp4,video/quicktime"
@@ -251,8 +300,8 @@ export default function App() {
               </div>
 
               <div className="actions">
-                <button className="btn btn-primary" onClick={startScan} disabled={!file}>
-                  Scan for faces
+                <button className="btn btn-primary" onClick={startScan} disabled={!file || uploading}>
+                  {uploading ? `Uploading… ${uploadPct}%` : "Scan for faces"}
                 </button>
               </div>
 
