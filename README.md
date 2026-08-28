@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⬛ REDACT
+<img src="redact-logo.png" width="420" alt="REDACT" />
 
 ### Selective face anonymization for video — blur *this* person, not *that* one.
 
@@ -29,7 +29,7 @@
 
 ---
 
-## ⬛ What makes it different
+## What makes it different
 
 Most face-blur tools blur **every** face. Redact answers a harder question: **"blur this person, but not that one."**
 
@@ -37,14 +37,14 @@ In the demo above, three people are detected. Only the center subject is selecte
 
 | | |
 |---|---|
-| 🎯 **Groups faces by identity** | The same person across 100 frames becomes one selectable subject — not 100 separate detections. |
-| 🖐️ **You choose who to blur** | Tick who to anonymize; everyone you leave unticked stays visible. |
-| 🛡️ **Protects the unknown** | A face the scan never catalogued is blurred by default, so nobody leaks by accident. |
-| 🗑️ **Zero storage** | No accounts, no database. Uploads, faces, and outputs are wiped when the session ends. |
+| **Groups faces by identity** | The same person across 100 frames becomes one selectable subject — not 100 separate detections. |
+| **You choose who to blur** | Tick who to anonymize; everyone you leave unticked stays visible. |
+| **Protects the unknown** | A face the scan never catalogued is blurred by default, so nobody leaks by accident. |
+| **Zero storage** | No accounts, no database. Uploads, faces, and outputs are wiped when the session ends. |
 
 ---
 
-## ⬛ How it works
+## How it works
 
 ```mermaid
 flowchart LR
@@ -67,7 +67,7 @@ The whole thing is **asynchronous** — the API hands back a job ID instantly an
 
 ---
 
-## ⬛ Tech stack
+## Tech stack
 
 | Layer | Tools |
 |-------|-------|
@@ -79,7 +79,7 @@ The whole thing is **asynchronous** — the API hands back a job ID instantly an
 
 ---
 
-## ⬛ Quick start
+## Quick start
 
 > You'll need **Node.js**, **Python 3**, and **ffmpeg** installed.
 
@@ -102,7 +102,7 @@ cd client && npm install && npm run dev       # → http://localhost:5173
 Open `http://localhost:5173`, drop in a clip, and go. The YuNet and SFace models ship in the repo — no downloads needed.
 
 <details>
-<summary><b>🐳 Or run the whole thing in one Docker container</b></summary>
+<summary><b>Or run the whole thing in one Docker container</b></summary>
 
 <br/>
 
@@ -118,7 +118,7 @@ This is the exact image that runs in production.
 
 ---
 
-## ⬛ Deployment
+## Deployment
 
 Redact runs live at **[redact.codes](https://redact.codes)** as a single Docker container on **Azure App Service**.
 
@@ -137,7 +137,7 @@ Every push to `main` triggers a **GitHub Actions** pipeline that builds the cont
 
 ---
 
-## ⬛ Design decisions worth calling out
+## Design decisions worth calling out
 
 <details>
 <summary><b>Why these choices — click to expand</b></summary>
@@ -158,7 +158,7 @@ Every push to `main` triggers a **GitHub Actions** pipeline that builds the cont
 
 ---
 
-## ⬛ Production considerations
+## Production considerations
 
 <details>
 <summary><b>Scaling & hardening notes — click to expand</b></summary>
@@ -173,7 +173,7 @@ For a busier public deployment, the main risk isn't a classic DDoS but **resourc
 
 ---
 
-## ⬛ Privacy
+## Privacy
 
 **No database. No accounts.** Uploads, thumbnails, faceprints, and outputs live only for the session and are wiped on "start over" and on server restart. Nothing about your video leaves the server it's processed on.
 
