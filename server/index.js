@@ -13,8 +13,8 @@ const PYTHON_DIR = path.join(__dirname, "..", "python");
 const PYTHON_BIN = process.env.PYTHON_BIN || path.join(PYTHON_DIR, "venv", "bin", "python");
 
 // --- watchdog thresholds ---
-const MAX_JOB_MS = 300 * 1000;   // hard ceiling: no job may run longer than 5 min
-const STALL_MS = 90 * 1000;      // no progress for 90s => considered hung
+const MAX_JOB_MS = 600 * 1000;   // hard ceiling: no job may run longer than 10 min
+const STALL_MS = 180 * 1000;      // no progress for 180s => considered hung
 const WATCHDOG_EVERY_MS = 10 * 1000; // check every 10s
 
 app.use(cors());
