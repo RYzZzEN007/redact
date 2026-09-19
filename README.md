@@ -18,7 +18,9 @@
 
 <br/>
 
-<img src="docs/demo.gif" width="760" alt="Redact demo — scan a clip, select one person, download the result with only that person blurred" />
+<a href="media/redact-launch.mp4"><img src="media/redact-launch.jpg" width="760" alt="Redact launch video: scan a clip, select one person, and only that person is blurred in the export. Click to play." /></a>
+
+<sub>▶ Click to play the 21s launch video</sub>
 
 <br/>
 
